@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Hassan Syed: an AI-assisted accounts payable process built in n8n and ERPNext, with code checks, human review and an audit trail.">
+<title>Ledgerline AP Automation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  img { max-width: 100%; }
+  body { margin: 0; }
+  /* Layout: one reading column (~68ch) with full-width bands for the routing slip and the screenshots; results set as a ledger extract. */
+  :root {
+    --paper: #f4f6f5; --ink: #16202a; --muted: #56626b; --rule: #d3dad7; --panel: #ffffff;
+    --post: #1b6b52; --review: #2f5d8a; --hold: #9a5a0b; --reject: #a83428;
+    --f-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --f-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --paper: #0f1517; --ink: #e4ebe8; --muted: #9aa7a2; --rule: #27322f; --panel: #151d20;
+    --post: #5ec29c; --review: #79a8d8; --hold: #e0a14d; --reject: #ee7b6c; color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --paper: #0f1517; --ink: #e4ebe8; --muted: #9aa7a2; --rule: #27322f; --panel: #151d20;
+    --post: #5ec29c; --review: #79a8d8; --hold: #e0a14d; --reject: #ee7b6c; color-scheme: dark; }
+
+  body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.6;
+         padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; }
+  .wrap { max-width: 1080px; margin-inline: auto; display: grid; gap: 64px; }
+  .col { max-width: 68ch; }
+  a { color: var(--post); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--review); outline-offset: 3px; border-radius: 2px; }
+  h1, h2 { font-family: var(--f-display); font-weight: 400; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3.2rem); line-height: 1.1; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2rem); line-height: 1.2; }
+  h3 { font-size: 1rem; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  .eyebrow { font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--f-mono); font-size: 0.875em; }
+  section { display: grid; gap: 20px; }
+
+  /* masthead */
+  .mast { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 24px; padding-block: 28px 0; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+  .mast .who { font-weight: 600; }
+  .mast nav { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.9rem; }
+
+  .hero { display: grid; gap: 22px; }
+  .hero .lede { font-size: 1.15rem; color: var(--muted); max-width: 62ch; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 6px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink); text-decoration: none; font-weight: 500; font-size: 0.95rem; }
+  .btn.primary { background: var(--post); border-color: var(--post); color: var(--paper); }
+  .btn.pending { color: var(--muted); border-style: dashed; cursor: default; }
+
+  /* ledger extract */
+  .ledger { border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+  .ledger table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .ledger th { text-align: left; font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 8px; border-bottom: 1px solid var(--rule); }
+  .ledger td { padding: 12px 8px; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+  .ledger tr:last-child td { border-bottom: 0; }
+  .ledger td.fig { font-family: var(--f-display); font-size: 1.5rem; text-align: right; white-space: nowrap; }
+  .ledger th.fig { text-align: right; }
+  .ledger td.note { color: var(--muted); font-size: 0.92rem; }
+  .ledgerbox { overflow-x: auto; }
+
+  /* routing slip */
+  .slip { display: grid; gap: 0; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); overflow: hidden; }
+  .step { display: grid; grid-template-columns: 3.2rem minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; padding: 14px 18px; border-bottom: 1px solid var(--rule); }
+  .step:last-child { border-bottom: 0; }
+  .step .n { font-family: var(--f-mono); color: var(--muted); font-size: 0.85rem; }
+  .step .d { min-width: 0; }
+  .step .d p { color: var(--muted); font-size: 0.93rem; }
+  .actor { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .a-n8n { color: var(--muted); } .a-ai { color: var(--review); } .a-code { color: var(--post); } .a-me { color: var(--hold); } .a-erp { color: var(--ink); }
+
+  .routes { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
+  .route { border-left: 3px solid var(--c); padding: 4px 0 4px 14px; display: grid; gap: 4px; }
+  .route h3 { color: var(--c); font-family: var(--f-mono); font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; }
+  .route p { font-size: 0.93rem; color: var(--muted); }
+  .r-post { --c: var(--post); } .r-review { --c: var(--review); } .r-hold { --c: var(--hold); } .r-reject { --c: var(--reject); }
+
+  .why { display: grid; gap: 22px 32px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); }
+  .why div { display: grid; gap: 6px; }
+  .why p { color: var(--muted); font-size: 0.95rem; }
+
+  .fixes { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+  .fix { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 28px; padding: 16px 0; border-bottom: 1px solid var(--rule); }
+  .fix .k { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 2px; }
+  @media (max-width: 640px) { .fix { grid-template-columns: minmax(0, 1fr); } .step { grid-template-columns: 2.4rem minmax(0, 1fr); } .step .actor { grid-column: 2; justify-self: start; } }
+
+  .gallery { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); }
+  figure { margin: 0; display: grid; gap: 8px; align-content: start; }
+  figure.wide { grid-column: 1 / -1; }
+  figure img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); display: block; }
+  figcaption { font-size: 0.88rem; color: var(--muted); }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  .stack { display: grid; gap: 0; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); border-top: 1px solid var(--rule); }
+  .stack div { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--rule); display: grid; gap: 2px; }
+  .stack span { font-size: 0.93rem; color: var(--muted); }
+
+  ul.next { margin: 0; padding-left: 1.1rem; display: grid; gap: 6px; color: var(--muted); }
+  ul.next b { color: var(--ink); font-weight: 600; }
+  footer { border-top: 1px solid var(--rule); padding-top: 18px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; font-size: 0.88rem; color: var(--muted); }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <span class="who">Hassan Syed</span>
+    <nav aria-label="Page">
+      <a href="#results">Results</a><a href="#how">How it works</a><a href="#screens">Screens</a>
+      <a href="https://www.linkedin.com/in/hassansyed9/" rel="noopener">LinkedIn</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow">Portfolio project · Accounts payable, end to end</p>
+    <h1>AI codes the invoices. Code checks every number. I approve the risky ones.</h1>
+    <p class="lede">I'm a senior accountant with about ten years in the field, an MBA in Accounting, and SAP and Oracle behind me. To show how I would build an AI-native accounting function, I built one: invoice to payment and bank reconciliation, in n8n and ERPNext, with local AI models and the controls an auditor would ask for.</p>
+    <div class="actions">
+      <a class="btn primary" href="#results">See the results</a>
+      <a class="btn" href="https://www.linkedin.com/in/hassansyed9/" rel="noopener">LinkedIn</a>
+    </div>
+  </section>
+
+  <section id="results">
+    <p class="eyebrow">Results · Ledgerline Cloud Inc. (fictional), October 2026</p>
+    <h2>One month of invoices, run through the system</h2>
+    <p class="col muted">Forty test invoices with six planted errors and five judgment calls, measured against an answer key written before the run and never shown to the AI.</p>
+    <div class="ledger"><div class="ledgerbox">
+      <table>
+        <thead><tr><th>Measure</th><th class="fig">Result</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Invoices received by email</td><td class="fig">40</td><td class="note">11 vendors, 3 invoice layouts</td></tr>
+          <tr><td>Posted to ERPNext</td><td class="fig">34</td><td class="note">22 automatically, 12 after my review</td></tr>
+          <tr><td>Planted errors stopped</td><td class="fig">6 of 6</td><td class="note">duplicate, bad line math, wrong sales tax, unusual amount, unknown vendor, missing invoice number</td></tr>
+          <tr><td>AI coding correct (GL and cost center)</td><td class="fig">33 of 35</td><td class="note">of invoices with a logged AI decision</td></tr>
+          <tr><td>AI reading errors caught by code</td><td class="fig">2</td><td class="note">a swapped invoice number, a misread line amount; neither posted</td></tr>
+          <tr><td>Payment run, approved by email</td><td class="fig">$120,291.70</td><td class="note">26 invoices, 10 vendor payments, ACH and one wire</td></tr>
+          <tr><td>Bank reconciliation</td><td class="fig">Book = bank</td><td class="note">12 lines; fees drafted as journals; one $3,200 deposit held for review, not plugged</td></tr>
+          <tr><td>AI time per invoice</td><td class="fig">146 s</td><td class="note">average, local models on a 2-core laptop with no GPU</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <section id="how">
+    <p class="eyebrow">How it works</p>
+    <h2>Every step has one owner</h2>
+    <p class="col muted">n8n runs the steps in a fixed order and calls the AI only where judgment is needed. The AI returns words and choices, never numbers it worked out.</p>
+    <div class="slip" role="list">
+      <div class="step" role="listitem"><span class="n">1</span><div class="d"><h3>Invoice arrives by email</h3><p>A PDF lands in the AP inbox; n8n picks it up and extracts the text.</p></div><span class="actor a-n8n">n8n</span></div>
+      <div class="step" role="listitem"><span class="n">2</span><div class="d"><h3>Read the invoice</h3><p>Qwen3 4B copies vendor, number, dates, lines and totals exactly as printed.</p></div><span class="actor a-ai">AI</span></div>
+      <div class="step" role="listitem"><span class="n">3</span><div class="d"><h3>Code it</h3><p>Granite 4.2 8B picks the GL account, cost center and purchase type, with a reason and a confidence level.</p></div><span class="actor a-ai">AI</span></div>
+      <div class="step" role="listitem"><span class="n">4</span><div class="d"><h3>Check every number</h3><p>Line math in cents, Texas sales tax (8.25%, 80% taxable for SaaS), duplicates, the vendor's usual amount, the $2,500 capitalization limit, prepaid periods.</p></div><span class="actor a-code">Code</span></div>
+      <div class="step" role="listitem"><span class="n">5</span><div class="d"><h3>Route and post</h3><p>Clean invoices post; the rest go to review or hold. Each posting carries the AI's coding and reason in its remarks.</p></div><span class="actor a-erp">ERPNext</span></div>
+      <div class="step" role="listitem"><span class="n">6</span><div class="d"><h3>Approve the risky items and the payment run</h3><p>I review drafts, release or keep holds, and approve the payment run from an email. Any change to the AI's coding needs a written reason.</p></div><span class="actor a-me">Me</span></div>
+      <div class="step" role="listitem"><span class="n">7</span><div class="d"><h3>Reconcile the bank</h3><p>Code matches bank lines by amount, date window and payee; the AI only reads unclear descriptions; fees become draft journals.</p></div><span class="actor a-code">Code</span></div>
+    </div>
+    <div class="routes">
+      <div class="route r-post"><h3>Post</h3><p>Every check passes, AI confidence is high, coding matches the vendor's usual accounts, and the total is $5,000 or less.</p></div>
+      <div class="route r-review"><h3>Review</h3><p>Over $5,000, a fixed asset, lower AI confidence, or coding that differs from the vendor's usual accounts. Saved as a draft for me.</p></div>
+      <div class="route r-hold"><h3>Hold</h3><p>Math or tax doesn't tie, unknown vendor, invoice number missing or not on the PDF, or more than 3x the vendor's usual amount.</p></div>
+      <div class="route r-reject"><h3>Reject</h3><p>Same vendor and invoice number already in the books.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Design choices</p>
+    <h2>Why it is built this way</h2>
+    <div class="why">
+      <div><h3>The AI never does math</h3><p>In my benchmark, all seven local models I tested failed both math problems. So the AI only reads and classifies, and code recomputes every total, tax and difference.</p></div>
+      <div><h3>People review where the risk is</h3><p>High value, assets, unusual amounts and low confidence go to a person. Routine invoices don't wait in a queue.</p></div>
+      <div><h3>Everything is logged</h3><p>Each AI decision, check result, route, posting and approval is written to an audit log, and ERPNext keeps the history of every human change.</p></div>
+      <div><h3>No invoice is lost</h3><p>If ERPNext refuses a posting, the invoice goes to the exception queue with the reason, never silently dropped.</p></div>
+      <div><h3>Data stays private</h3><p>The models run locally through Ollama, so invoice data never leaves the machine. Nothing is exposed to the internet; I reach it over a private network only.</p></div>
+      <div><h3>The model is swappable</h3><p>Moving from local models to a hosted one such as Claude is one setting in n8n. The controls stay the same.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">What went wrong, and what I changed</p>
+    <h2>The controls caught most problems. Review caught the rest.</h2>
+    <div class="fixes">
+      <div class="fix"><p><span class="k">Found</span>The AI read an invoice number with two digits swapped, and misread a line as $187.00 instead of $187.50.</p><p><span class="k">Outcome</span>Code checks held both. I verified them against the PDFs and entered them by hand, with comments.</p></div>
+      <div class="fix"><p><span class="k">Found</span>One laptop invoice said "for Support team" on a wrapped line; the AI coded it to Engineering, and it posted.</p><p><span class="k">Outcome</span>My results review caught it; I amended the invoice. Next control: compare a team named on the invoice with the AI's cost center.</p></div>
+      <div class="fix"><p><span class="k">Found</span>Two invoices posting at the same moment collided in ERPNext's numbering, and one run stopped.</p><p><span class="k">Outcome</span>Invoices now post one at a time with retries, and any refusal is routed to the exception queue.</p></div>
+      <div class="fix"><p><span class="k">Found</span>A test batch went out in reverse order, which would have flagged the wrong invoice as the duplicate.</p><p><span class="k">Outcome</span>I stopped the run, cleaned up the test postings, and now check the first two items before releasing a batch.</p></div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <p class="eyebrow">Screens</p>
+    <h2>The system at work</h2>
+    <div class="gallery">
+      <figure class="wide"><img src="img/01-canvas.jpg" alt="n8n invoice workflow: email trigger, AI read, AI coding, ERPNext lookups, code checks, post or exception, audit log" width="1600" height="615"><figcaption><b>Invoice workflow in n8n.</b> Email in, AI read, AI coding, ERPNext lookups, code checks, then post or exception. ERPNext refusals have their own error path, and every invoice ends in the audit log.</figcaption></figure>
+      <figure><img src="img/review-028.jpg" alt="ERPNext draft purchase invoice with review reasons in the remarks" width="1600" height="1312"><figcaption><b>A flagged invoice waiting for review.</b> A $16,562 server purchase: CAPEX and over $5,000, with the AI's coding and reason on the record.</figcaption></figure>
+      <figure><img src="img/posted-012.jpg" alt="ERPNext purchase invoice with automation remarks" width="1600" height="1312"><figcaption><b>An annual subscription, posted as a prepayment.</b> Code counted the 12-month service period and moved it to 1660 Prepaid Expenses.</figcaption></figure>
+      <figure><img src="img/approval-email.jpg" alt="Payment run approval email listing ten vendor payments" width="880" height="1100"><figcaption><b>Payment run approval.</b> Built by code, grouped by vendor; nothing is paid until Approve is clicked.</figcaption></figure>
+      <figure><img src="img/bank-statement.jpg" alt="ERPNext bank reconciliation statement showing no outstanding items" width="1600" height="849"><figcaption><b>Bank reconciliation, Nov 6.</b> Balance per books equals the calculated bank balance, with nothing outstanding.</figcaption></figure>
+      <figure class="wide"><img src="img/02-payment-run.jpg" alt="n8n payment run workflow" width="1600" height="361"><figcaption><b>Payment run workflow.</b> Due invoices, proposal, approval email, payment entries, audit log; a declined run is logged too.</figcaption></figure>
+      <figure class="wide"><img src="img/03-bank-rec.jpg" alt="n8n bank reconciliation workflow" width="1600" height="360"><figcaption><b>Bank reconciliation workflow.</b> Matching in code, the AI only for unclear descriptions, then clearance dates and draft fee journals.</figcaption></figure>
+      <figure><img src="img/dash-tiles.jpg" alt="Results dashboard headline figures" width="1600" height="980"><figcaption><b>Results dashboard.</b> Measured against the answer key.</figcaption></figure>
+      <figure><img src="img/dash-ai.jpg" alt="Chart of routing against the answer key and table of AI errors" width="1600" height="873"><figcaption><b>Where the AI was wrong, and what caught it.</b></figcaption></figure>
+      <figure class="wide"><img src="img/dash-exceptions.jpg" alt="Table of exceptions and the decision made on each" width="1600" height="703"><figcaption><b>Every exception, with the decision made.</b> Nothing deleted, nothing plugged.</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Stack</p>
+    <h2>Free to run, on a home server</h2>
+    <div class="stack">
+      <div><b>n8n, self-hosted</b><span>Runs the steps, the approvals and the logs</span></div>
+      <div><b>ERPNext</b><span>The books: chart of accounts, cost centers, fixed assets, payments, bank</span></div>
+      <div><b>Ollama, local models</b><span>Qwen3 4B reads; Granite 4.2 8B codes</span></div>
+      <div><b>Ubuntu, Docker</b><span>A 2-core laptop with 16 GB RAM and no GPU</span></div>
+      <div><b>Private access only</b><span>Reached over a private network and an SSH tunnel; no open ports</span></div>
+      <div><b>Test data</b><span>Fictional company, vendors and amounts, with an answer key</span></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Next</p>
+    <h2>What I would add next</h2>
+    <ul class="next col">
+      <li><b>Accruals</b> for services received but not yet invoiced at month end</li>
+      <li><b>Prepaid amortization and fixed asset depreciation</b> posted on schedule</li>
+      <li><b>A month-end close tracker</b> that shows what is left and who owns it</li>
+      <li><b>A team-name check</b> comparing a team named on the invoice with the AI's cost center</li>
+      <li><b>A chat assistant</b> for questions like "show unapproved invoices over $5,000"</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>Hassan Syed · <a href="https://www.linkedin.com/in/hassansyed9/" rel="noopener">LinkedIn</a></span>
+    <span>All company names, people and figures in this project are fictional.</span>
+  </footer>
+</div>
+
+</body>
+</html>
